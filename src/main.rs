@@ -4,6 +4,22 @@ use std::{
     net::TcpListener,
 };
 
+fn handle_conn(stream: &mut std::net::TcpStream) {
+    let mut buf = [0; 512];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                stream.write(b"+PONG\r\n").unwrap();
+            }
+            Err(e) => {
+                println!("REDIS: error: {}", e);
+                break;
+            }
+        }
+    }
+}
+
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
@@ -15,23 +31,8 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
-                println!("accepted new connection");
-                let mut buf = [0; 512];
-                loop {
-                    match _stream.read(&mut buf) {
-                        Ok(0) => {
-                            println!("closing connection");
-                            break;
-                        }
-                        Ok(_) => {
-                            _stream.write("+PONG\r\n".as_bytes()).unwrap();
-                        }
-                        Err(e) => {
-                            println!("error: {}", e);
-                            break;
-                        }
-                    }
-                }
+                println!("REDIS: new connection");
+                std::thread::spawn(move || handle_conn(&mut _stream));
             }
             Err(e) => {
                 println!("error: {}", e);
