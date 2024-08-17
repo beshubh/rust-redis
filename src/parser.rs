@@ -23,7 +23,6 @@ pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, Data>>>) -> St
             args_to_read = args_to_read * 10 + (cmd[idx] - b'0');
             idx += 1;
         }
-        println!("args_to_read {}", args_to_read);
         cmd = &cmd[idx + 2..];
     }
     match cmd[0] {
@@ -38,11 +37,11 @@ fn read_bulk_args(cmd: &[u8], args_to_read: usize) -> Vec<String> {
     let mut cmd = cmd;
     // $4\r\nECHO\r\n$3\r\nhey\r\n
     while args_to_read > 0 {
-        let arg_args_to_read = (cmd[1] - b'0') as usize;
-        let arg = std::str::from_utf8(&cmd[4..(4 + arg_args_to_read)]).unwrap();
+        let arg_len = (cmd[1] - b'0') as usize;
+        let arg = std::str::from_utf8(&cmd[4..(4 + arg_len)]).unwrap();
         args.push(arg.to_string());
         args_to_read -= 1;
-        cmd = &cmd[(4 + arg_args_to_read + 2)..];
+        cmd = &cmd[(4 + arg_len + 2)..];
     }
     args
 }
@@ -66,12 +65,11 @@ fn handle_set(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>)
     if args.len() < 3 {
         return "-ERR wrong number of arguments for 'set' command\r\n".to_string();
     }
+    println!("I don't know what's wrong here: {:?}", args);
     let mut exp = None;
     if args.len() >= 4 {
-        println!(" len > 4 args 3 {:?}", args[3]);
         match args[3].to_lowercase().as_str() {
             "px" => {
-                println!(" match args 3 {:?}", args[3]);
                 if args.len() < 5 {
                     return "-ERR wrong number of arguments for 'set' with 'px' command\r\n"
                         .to_string();
