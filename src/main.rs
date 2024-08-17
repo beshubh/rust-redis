@@ -24,13 +24,15 @@ fn handle_conn(
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
 
-    // Uncomment this block to pass the first stage
-    //
     let data_store = Arc::new(Mutex::new(HashMap::new()));
-
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let mut port = 6379;
+    let command_args: Vec<String> = std::env::args().collect();
+    if command_args.len() > 1 && command_args[1] == "--port" {
+        port = command_args[2].parse().unwrap();
+    }
+    let addr = format!("127.0.0.1:{}", port);
+    let listener = TcpListener::bind(addr).unwrap();
 
     for stream in listener.incoming() {
         match stream {
