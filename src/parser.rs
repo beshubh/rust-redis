@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 const BULK_STRING_BYTE: u8 = b'$';
 const ARRAY_BYTE: u8 = b'*';
 
-pub fn process(cmd: &[u8]) -> String {
+pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, String>>>) -> String {
     // *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
     let mut args_to_read = 0;
     let mut cmd = cmd;
@@ -12,7 +14,7 @@ pub fn process(cmd: &[u8]) -> String {
         cmd = &cmd[4..];
     }
     match cmd[0] {
-        BULK_STRING_BYTE => process_bulk_string(cmd, args_to_read as usize),
+        BULK_STRING_BYTE => process_bulk_string(data_store, cmd, args_to_read as usize),
         _ => "-ERR unknown first command\r\n".to_string(),
     }
 }
@@ -32,11 +34,27 @@ fn read_bulk_args(cmd: &[u8], args_to_read: usize) -> Vec<String> {
     args
 }
 
-fn process_bulk_string(cmd: &[u8], args_to_read: usize) -> String {
+fn process_bulk_string(
+    data_store: &Arc<Mutex<HashMap<String, String>>>,
+    cmd: &[u8],
+    args_to_read: usize,
+) -> String {
     let args = read_bulk_args(cmd, args_to_read);
     match args[0].to_lowercase().as_str() {
         "echo" => format!("+{}\r\n", args[1]),
         "ping" => "+PONG\r\n".to_string(),
+        "set" => {
+            let mut data_store = data_store.lock().unwrap();
+            data_store.insert(args[1].clone(), args[2].clone());
+            "+OK\r\n".to_string()
+        }
+        "get" => {
+            let data_store = data_store.lock().unwrap();
+            match data_store.get(&args[1]) {
+                Some(value) => format!("+{}\r\n", value),
+                None => "$-1\r\n".to_string(),
+            }
+        }
         _ => "-ERR unknown command \r\n".to_string(),
     }
 }
