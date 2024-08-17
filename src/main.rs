@@ -1,22 +1,16 @@
 // Uncomment this block to pass the first stage
-use std::{
-    io::{Read, Write},
-    net::TcpListener,
-};
+mod parser;
+
+use std::{io::Read, io::Write, net::TcpListener};
 
 fn handle_conn(stream: &mut std::net::TcpStream) {
-    let mut buf = [0; 512];
-    loop {
-        match stream.read(&mut buf) {
-            Ok(0) => break,
-            Ok(_) => {
-                stream.write(b"+PONG\r\n").unwrap();
-            }
-            Err(e) => {
-                println!("REDIS: error: {}", e);
-                break;
-            }
+    let mut cmd = [0u8; 512];
+    while let Ok(bytes_read) = stream.read(&mut cmd) {
+        if bytes_read == 0 {
+            break;
         }
+        let value = parser::process(&cmd);
+        stream.write(value.as_bytes()).unwrap();
     }
 }
 
