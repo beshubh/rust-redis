@@ -66,6 +66,17 @@ fn process_bulk_string(
         "ping" => "+PONG\r\n".to_string(),
         "set" => handle_set(data_store, args),
         "get" => handle_get(data_store, args),
+        "info" => handle_info(data_store, args),
+        _ => "-ERR unknown command \r\n".to_string(),
+    }
+}
+
+fn handle_info(_: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>) -> String {
+    match args[1].to_lowercase().as_str() {
+        "replication" => {
+            let reply = "role:master";
+            format!("${}\r\n{}\r\n", reply.len(), reply)
+        }
         _ => "-ERR unknown command \r\n".to_string(),
     }
 }
