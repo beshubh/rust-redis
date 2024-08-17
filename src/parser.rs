@@ -18,12 +18,13 @@ pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, Data>>>) -> St
     if cmd[0] == ARRAY_BYTE {
         // iterate until we find crlf
         // $120\r\n
-        let mut idx = 1;
-        while &cmd[idx..idx + 2] != b"\r\n" {
-            args_to_read = args_to_read * 10 + (cmd[idx] - b'0');
-            idx += 1;
-        }
-        cmd = &cmd[idx + 2..];
+        let crlf_cursor = find_crlf(cmd).unwrap();
+
+        args_to_read = cmd[1..crlf_cursor]
+            .iter()
+            .fold(0, |acc, x| acc * 10 + (x - b'0') as usize);
+        cmd = &cmd[crlf_cursor + 2..];
+        return process_bulk_string(data_store, &cmd, args_to_read as usize);
     }
     match cmd[0] {
         BULK_STRING_BYTE => process_bulk_string(data_store, cmd, args_to_read as usize),
@@ -31,17 +32,25 @@ pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, Data>>>) -> St
     }
 }
 
+fn find_crlf(input: &[u8]) -> Option<usize> {
+    input.windows(2).position(|window| window == b"\r\n")
+}
+
 fn read_bulk_args(cmd: &[u8], args_to_read: usize) -> Vec<String> {
     let mut args = Vec::new();
     let mut args_to_read = args_to_read;
     let mut cmd = cmd;
-    // $4\r\nECHO\r\n$3\r\nhey\r\n
+    //"*3\r\n....$3\r\nSET\r\n$10\r\nstrawberry\r\n$9\r\nraspberry\r\n"
     while args_to_read > 0 {
-        let arg_len = (cmd[1] - b'0') as usize;
-        let arg = std::str::from_utf8(&cmd[4..(4 + arg_len)]).unwrap();
+        let crlf_cursor = find_crlf(cmd).unwrap();
+        let arg_len = cmd[1..crlf_cursor]
+            .iter()
+            .fold(0, |acc, x| acc * 10 + (x - b'0') as usize);
+        let arg = std::str::from_utf8(&cmd[crlf_cursor + 2..(arg_len + crlf_cursor + 2)]).unwrap();
+
         args.push(arg.to_string());
         args_to_read -= 1;
-        cmd = &cmd[(4 + arg_len + 2)..];
+        cmd = &cmd[(crlf_cursor + 2 + arg_len + 2)..];
     }
     args
 }
@@ -65,7 +74,6 @@ fn handle_set(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>)
     if args.len() < 3 {
         return "-ERR wrong number of arguments for 'set' command\r\n".to_string();
     }
-    println!("I don't know what's wrong here: {:?}", args);
     let mut exp = None;
     if args.len() >= 4 {
         match args[3].to_lowercase().as_str() {
