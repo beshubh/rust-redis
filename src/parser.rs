@@ -7,8 +7,8 @@ const BULK_STRING_BYTE: u8 = b'$';
 const ARRAY_BYTE: u8 = b'*';
 
 pub struct Data {
-    value: String,
-    exp: Option<u128>,
+    pub value: String,
+    pub exp: Option<u128>,
 }
 
 pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, Data>>>) -> String {
@@ -71,10 +71,13 @@ fn process_bulk_string(
     }
 }
 
-fn handle_info(_: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>) -> String {
+fn handle_info(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>) -> String {
     match args[1].to_lowercase().as_str() {
         "replication" => {
-            let reply = "role:master";
+            let data_store = data_store.lock().unwrap();
+            let role = data_store.get("__role").unwrap();
+            let reply = format!("role:{}", role.value);
+
             format!("${}\r\n{}\r\n", reply.len(), reply)
         }
         _ => "-ERR unknown command \r\n".to_string(),
@@ -106,7 +109,7 @@ fn handle_set(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>)
         }
     }
 
-    let mut data_store: std::sync::MutexGuard<HashMap<String, Data>> = data_store.lock().unwrap();
+    let mut data_store = data_store.lock().unwrap();
     data_store.insert(
         args[1].clone(),
         Data {
