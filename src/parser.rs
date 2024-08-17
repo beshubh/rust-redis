@@ -1,11 +1,17 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::vec::Vec;
 
 const BULK_STRING_BYTE: u8 = b'$';
 const ARRAY_BYTE: u8 = b'*';
 
-pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, String>>>) -> String {
+pub struct Data {
+    value: String,
+    exp: Option<u128>,
+}
+
+pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, Data>>>) -> String {
     // *2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n
     let mut args_to_read = 0;
     let mut cmd = cmd;
@@ -35,7 +41,7 @@ fn read_bulk_args(cmd: &[u8], args_to_read: usize) -> Vec<String> {
 }
 
 fn process_bulk_string(
-    data_store: &Arc<Mutex<HashMap<String, String>>>,
+    data_store: &Arc<Mutex<HashMap<String, Data>>>,
     cmd: &[u8],
     args_to_read: usize,
 ) -> String {
@@ -43,18 +49,70 @@ fn process_bulk_string(
     match args[0].to_lowercase().as_str() {
         "echo" => format!("+{}\r\n", args[1]),
         "ping" => "+PONG\r\n".to_string(),
-        "set" => {
-            let mut data_store = data_store.lock().unwrap();
-            data_store.insert(args[1].clone(), args[2].clone());
-            "+OK\r\n".to_string()
-        }
-        "get" => {
-            let data_store = data_store.lock().unwrap();
-            match data_store.get(&args[1]) {
-                Some(value) => format!("+{}\r\n", value),
-                None => "$-1\r\n".to_string(),
+        "set" => handle_set(data_store, args),
+        "get" => handle_get(data_store, args),
+        _ => "-ERR unknown command \r\n".to_string(),
+    }
+}
+
+fn handle_set(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>) -> String {
+    if args.len() < 3 {
+        return "-ERR wrong number of arguments for 'set' command\r\n".to_string();
+    }
+    println!("args {:?}", args);
+    let mut exp = None;
+    if args.len() >= 4 {
+        println!(" len > 4 args 3 {:?}", args[3]);
+        match args[3].to_lowercase().as_str() {
+            "px" => {
+                println!(" match args 3 {:?}", args[3]);
+                if args.len() < 5 {
+                    return "-ERR wrong number of arguments for 'set' with 'px' command\r\n"
+                        .to_string();
+                }
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis();
+                let millis: u128 = args[4].parse().expect("expiration is not an integer");
+                exp = Some(now + millis);
+            }
+            _ => {
+                return "-ERR unknown command \r\n".to_string();
             }
         }
-        _ => "-ERR unknown command \r\n".to_string(),
+    }
+
+    let mut data_store: std::sync::MutexGuard<HashMap<String, Data>> = data_store.lock().unwrap();
+    data_store.insert(
+        args[1].clone(),
+        Data {
+            value: args[2].clone(),
+            exp,
+        },
+    );
+    "+OK\r\n".to_string()
+}
+
+fn handle_get(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>) -> String {
+    if args.len() < 2 {
+        return "-ERR wrong number of arguments for 'get' command\r\n".to_string();
+    }
+    let mut data_store = data_store.lock().unwrap();
+    match data_store.get(&args[1]) {
+        Some(data) => {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+
+            if Option::is_some(&data.exp) && data.exp < Some(now) {
+                data_store.remove(&args[1]);
+                return "$-1\r\n".to_string();
+            } else {
+                return format!("+{}\r\n", data.value);
+            }
+        }
+        None => "$-1\r\n".to_string(),
     }
 }

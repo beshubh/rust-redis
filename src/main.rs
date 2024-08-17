@@ -8,7 +8,10 @@ use std::{
     net::TcpListener,
 };
 
-fn handle_conn(data_store: Arc<Mutex<HashMap<String, String>>>, stream: &mut std::net::TcpStream) {
+fn handle_conn(
+    data_store: Arc<Mutex<HashMap<String, parser::Data>>>,
+    stream: &mut std::net::TcpStream,
+) {
     let mut cmd = [0u8; 512];
     while let Ok(bytes_read) = stream.read(&mut cmd) {
         if bytes_read == 0 {
