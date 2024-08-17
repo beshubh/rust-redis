@@ -76,7 +76,12 @@ fn handle_info(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>
         "replication" => {
             let data_store = data_store.lock().unwrap();
             let role = data_store.get("__role").unwrap();
-            let reply = format!("role:{}", role.value);
+            let master_replid = data_store.get("__master_replid").unwrap();
+            let master_repl_offset = data_store.get("__master_repl_offset").unwrap();
+            let reply = format!(
+                "role:{}\n\nmaster_replid:{}\r\nmaster_repl_offset:{}",
+                role.value, master_replid.value, master_repl_offset.value
+            );
 
             format!("${}\r\n{}\r\n", reply.len(), reply)
         }

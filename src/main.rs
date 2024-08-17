@@ -1,13 +1,14 @@
 // Uncomment this block to pass the first stage
 mod parser;
 
+use parser::Data;
 use std::sync::{Arc, Mutex};
-use std::thread::panicking;
 use std::{
     collections::HashMap,
     io::{Read, Write},
     net::TcpListener,
 };
+use ulid::Ulid;
 
 fn handle_conn(
     data_store: Arc<Mutex<HashMap<String, parser::Data>>>,
@@ -27,6 +28,8 @@ struct ServerOptions {
     port: u16,
     role: String,
     replica_of: Option<String>,
+    master_replid: String,
+    master_repl_offset: i64,
 }
 
 fn extract_server_options(command_args: Vec<String>) -> ServerOptions {
@@ -49,19 +52,15 @@ fn extract_server_options(command_args: Vec<String>) -> ServerOptions {
         port,
         role: role.to_string(),
         replica_of,
+        master_repl_offset: 0,
+        master_replid: Ulid::new().to_string(),
     }
 }
 
-fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-
-    let data_store = Arc::new(Mutex::new(HashMap::new()));
-
-    let command_args: Vec<String> = std::env::args().collect();
-    let server_options = extract_server_options(command_args);
-
-    let addr = format!("127.0.0.1:{}", server_options.port);
-
+fn init_server(
+    data_store: &Arc<Mutex<HashMap<String, parser::Data>>>,
+    server_options: ServerOptions,
+) -> TcpListener {
     data_store.lock().unwrap().insert(
         "__role".to_string(),
         parser::Data {
@@ -69,6 +68,22 @@ fn main() {
             exp: None,
         },
     );
+    data_store.lock().unwrap().insert(
+        String::from("__master_replid"),
+        parser::Data {
+            value: server_options.master_replid.clone(),
+            exp: None,
+        },
+    );
+
+    data_store.lock().unwrap().insert(
+        String::from("__master_repl_offset"),
+        Data {
+            value: server_options.master_repl_offset.to_string(),
+            exp: None,
+        },
+    );
+
     if let Some(replica_of) = server_options.replica_of.clone() {
         println!("I am a slave of {}", replica_of);
         data_store.lock().unwrap().insert(
@@ -82,7 +97,18 @@ fn main() {
         println!("I am a master");
     }
 
+    let addr = format!("127.0.0.1:{}", server_options.port);
     let listener = TcpListener::bind(addr).unwrap();
+    listener
+}
+
+fn main() {
+    let data_store = Arc::new(Mutex::new(HashMap::new()));
+
+    let command_args: Vec<String> = std::env::args().collect();
+    let server_options = extract_server_options(command_args);
+    let listener = init_server(&data_store, server_options);
+
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
