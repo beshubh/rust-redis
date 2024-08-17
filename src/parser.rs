@@ -16,8 +16,15 @@ pub fn process(cmd: &[u8], data_store: &Arc<Mutex<HashMap<String, Data>>>) -> St
     let mut args_to_read = 0;
     let mut cmd = cmd;
     if cmd[0] == ARRAY_BYTE {
-        args_to_read = cmd[1] - b'0';
-        cmd = &cmd[4..];
+        // iterate until we find crlf
+        // $120\r\n
+        let mut idx = 1;
+        while &cmd[idx..idx + 2] != b"\r\n" {
+            args_to_read = args_to_read * 10 + (cmd[idx] - b'0');
+            idx += 1;
+        }
+        println!("args_to_read {}", args_to_read);
+        cmd = &cmd[idx + 2..];
     }
     match cmd[0] {
         BULK_STRING_BYTE => process_bulk_string(data_store, cmd, args_to_read as usize),
@@ -59,7 +66,6 @@ fn handle_set(data_store: &Arc<Mutex<HashMap<String, Data>>>, args: Vec<String>)
     if args.len() < 3 {
         return "-ERR wrong number of arguments for 'set' command\r\n".to_string();
     }
-    println!("args {:?}", args);
     let mut exp = None;
     if args.len() >= 4 {
         println!(" len > 4 args 3 {:?}", args[3]);
