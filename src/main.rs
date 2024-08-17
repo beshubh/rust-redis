@@ -2,6 +2,7 @@
 mod parser;
 
 use parser::Data;
+use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::{
     collections::HashMap,
@@ -59,7 +60,7 @@ fn extract_server_options(command_args: Vec<String>) -> ServerOptions {
 
 fn init_server(
     data_store: &Arc<Mutex<HashMap<String, parser::Data>>>,
-    server_options: ServerOptions,
+    server_options: &ServerOptions,
 ) -> TcpListener {
     data_store.lock().unwrap().insert(
         "__role".to_string(),
@@ -86,10 +87,11 @@ fn init_server(
 
     if let Some(replica_of) = server_options.replica_of.clone() {
         println!("I am a slave of {}", replica_of);
+        let replica_addr = replica_of.split(" ").collect::<Vec<&str>>().join(":");
         data_store.lock().unwrap().insert(
             "__replicaof".to_string(),
             parser::Data {
-                value: replica_of.clone(),
+                value: replica_addr,
                 exp: None,
             },
         );
@@ -102,12 +104,26 @@ fn init_server(
     listener
 }
 
+fn connect_to_replica(replica_addr: &String) -> TcpStream {
+    if let Ok(mut stream) = TcpStream::connect(replica_addr) {
+        let msg = "PING";
+        let resp_msg = format!("*1\r\n${}\r\n{}\r\n", msg.len(), msg);
+        stream.write(resp_msg.as_bytes()).unwrap();
+        stream
+    } else {
+        panic!("REDIS ERROR: cannot connect to replica")
+    }
+}
+
 fn main() {
     let data_store = Arc::new(Mutex::new(HashMap::new()));
 
     let command_args: Vec<String> = std::env::args().collect();
     let server_options = extract_server_options(command_args);
-    let listener = init_server(&data_store, server_options);
+    let listener = init_server(&data_store, &server_options);
+    if server_options.role == "slave" {
+        let _ = connect_to_replica(&data_store.lock().unwrap().get("__replicaof").unwrap().value);
+    }
 
     for stream in listener.incoming() {
         match stream {
