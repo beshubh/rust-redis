@@ -1,7 +1,9 @@
 // Uncomment this block to pass the first stage
 mod parser;
 
+use core::str;
 use parser::Data;
+use std::fs::read;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::{
@@ -31,6 +33,30 @@ struct ServerOptions {
     replica_of: Option<String>,
     master_replid: String,
     master_repl_offset: i64,
+}
+
+struct RespMessage {
+    raw_string: String,
+}
+
+impl RespMessage {
+    fn new(raw_string: String) -> Self {
+        Self { raw_string }
+    }
+
+    fn build_reply(&self) -> String {
+        let commands_vec = self
+            .raw_string
+            .split(' ')
+            .map(String::from)
+            .collect::<Vec<_>>();
+        println!("commands vector: {:?}", &commands_vec);
+        let mut command_strign = String::new();
+        for command in &commands_vec {
+            command_strign.push_str(format!("${}\r\n{}\r\n", command.len(), command).as_str())
+        }
+        format!("*{}\r\n{}", commands_vec.len(), command_strign)
+    }
 }
 
 fn extract_server_options(command_args: Vec<String>) -> ServerOptions {
@@ -105,13 +131,43 @@ fn init_server(
 }
 
 fn connect_to_replica(replica_addr: &String) -> TcpStream {
-    if let Ok(mut stream) = TcpStream::connect(replica_addr) {
-        let msg = "PING";
-        let resp_msg = format!("*1\r\n${}\r\n{}\r\n", msg.len(), msg);
-        stream.write(resp_msg.as_bytes()).unwrap();
-        stream
+    TcpStream::connect(replica_addr).unwrap()
+}
+
+fn do_handshake(handshake_server_stream: &mut TcpStream, server_options: &ServerOptions) {
+    let resp_msg = RespMessage::new(String::from("PING")).build_reply();
+    handshake_server_stream.write(resp_msg.as_bytes()).unwrap();
+    let mut buf = [0; 512];
+    if let Ok(read_bytes) = handshake_server_stream.read(&mut buf) {
+        let response = std::str::from_utf8(&buf[..read_bytes]).unwrap();
+        println!("handshake: Received {response}");
+
+        if response.trim() != "+PONG" {
+            handshake_server_stream
+                .write(b"-Error wrong response for PING")
+                .unwrap();
+        }
+        let replconf_port =
+            RespMessage::new(format!("REPLCONF listening-port {}", server_options.port))
+                .build_reply();
+
+        handshake_server_stream
+            .write(replconf_port.as_bytes())
+            .unwrap();
+        let replconf_capa_psycn2 =
+            RespMessage::new(String::from("REPLCONF capa psycn2")).build_reply();
+        handshake_server_stream
+            .write(replconf_capa_psycn2.as_bytes())
+            .unwrap();
+        let mut buf = [0; 512];
+        if let Ok(read_bytes) = handshake_server_stream.read(&mut buf) {
+            let response = std::str::from_utf8(&buf[..read_bytes]).unwrap();
+            println!("handshake: Received: {response}");
+        } else {
+            eprintln!("handshake: Error reading replconf response")
+        }
     } else {
-        panic!("REDIS ERROR: cannot connect to replica")
+        eprintln!("handshake: error reading from master while handshake")
     }
 }
 
@@ -122,7 +178,9 @@ fn main() {
     let server_options = extract_server_options(command_args);
     let listener = init_server(&data_store, &server_options);
     if server_options.role == "slave" {
-        let _ = connect_to_replica(&data_store.lock().unwrap().get("__replicaof").unwrap().value);
+        let mut replica_stream =
+            connect_to_replica(&data_store.lock().unwrap().get("__replicaof").unwrap().value);
+        do_handshake(&mut replica_stream, &server_options);
     }
 
     for stream in listener.incoming() {
