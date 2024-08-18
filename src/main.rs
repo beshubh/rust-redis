@@ -1,197 +1,98 @@
-// Uncomment this block to pass the first stage
+mod cli;
+mod command;
 mod parser;
+mod replica;
+mod store;
+mod tcp;
 
-use core::str;
-use parser::Data;
-use std::fs::read;
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
-    net::TcpListener,
-};
-use ulid::Ulid;
-
-fn handle_conn(
-    data_store: Arc<Mutex<HashMap<String, parser::Data>>>,
-    stream: &mut std::net::TcpStream,
-) {
-    let mut cmd = [0u8; 512];
-    while let Ok(bytes_read) = stream.read(&mut cmd) {
-        if bytes_read == 0 {
-            break;
-        }
-        let value = parser::process(&cmd, &data_store);
-        stream.write(value.as_bytes()).unwrap();
-    }
-}
-
-struct ServerOptions {
-    port: u16,
-    role: String,
-    replica_of: Option<String>,
-    master_replid: String,
-    master_repl_offset: i64,
-}
-
-struct RespMessage {
-    raw_string: String,
-}
-
-impl RespMessage {
-    fn new(raw_string: String) -> Self {
-        Self { raw_string }
-    }
-
-    fn build_reply(&self) -> String {
-        let commands_vec = self
-            .raw_string
-            .split(' ')
-            .map(String::from)
-            .collect::<Vec<_>>();
-        println!("commands vector: {:?}", &commands_vec);
-        let mut command_strign = String::new();
-        for command in &commands_vec {
-            command_strign.push_str(format!("${}\r\n{}\r\n", command.len(), command).as_str())
-        }
-        format!("*{}\r\n{}", commands_vec.len(), command_strign)
-    }
-}
-
-fn extract_server_options(command_args: Vec<String>) -> ServerOptions {
-    let mut port = 6379;
-    let mut role = "master";
-    let mut replica_of: Option<String> = None;
-    for i in 0..command_args.len() {
-        match command_args[i].as_str() {
-            "--replicaof" => {
-                role = "slave";
-                replica_of = Some(command_args[i + 1].clone());
-            }
-            "--port" => {
-                port = command_args[i + 1].parse().unwrap();
-            }
-            _ => {}
-        }
-    }
-    ServerOptions {
-        port,
-        role: role.to_string(),
-        replica_of,
-        master_repl_offset: 0,
-        master_replid: Ulid::new().to_string(),
-    }
-}
-
-fn init_server(
-    data_store: &Arc<Mutex<HashMap<String, parser::Data>>>,
-    server_options: &ServerOptions,
-) -> TcpListener {
-    data_store.lock().unwrap().insert(
-        "__role".to_string(),
-        parser::Data {
-            value: server_options.role.to_string(),
-            exp: None,
-        },
-    );
-    data_store.lock().unwrap().insert(
-        String::from("__master_replid"),
-        parser::Data {
-            value: server_options.master_replid.clone(),
-            exp: None,
-        },
-    );
-
-    data_store.lock().unwrap().insert(
-        String::from("__master_repl_offset"),
-        Data {
-            value: server_options.master_repl_offset.to_string(),
-            exp: None,
-        },
-    );
-
-    if let Some(replica_of) = server_options.replica_of.clone() {
-        println!("I am a slave of {}", replica_of);
-        let replica_addr = replica_of.split(" ").collect::<Vec<&str>>().join(":");
-        data_store.lock().unwrap().insert(
-            "__replicaof".to_string(),
-            parser::Data {
-                value: replica_addr,
-                exp: None,
-            },
-        );
-    } else {
-        println!("I am a master");
-    }
-
-    let addr = format!("127.0.0.1:{}", server_options.port);
-    let listener = TcpListener::bind(addr).unwrap();
-    listener
-}
-
-fn connect_to_replica(replica_addr: &String) -> TcpStream {
-    TcpStream::connect(replica_addr).unwrap()
-}
-
-fn do_handshake(handshake_server_stream: &mut TcpStream, server_options: &ServerOptions) {
-    let resp_msg = RespMessage::new(String::from("PING")).build_reply();
-    handshake_server_stream.write(resp_msg.as_bytes()).unwrap();
-    let mut buf = [0; 512];
-    if let Ok(read_bytes) = handshake_server_stream.read(&mut buf) {
-        let response = std::str::from_utf8(&buf[..read_bytes]).unwrap();
-        println!("handshake: Received {response}");
-
-        if response.trim() != "+PONG" {
-            handshake_server_stream
-                .write(b"-Error wrong response for PING")
-                .unwrap();
-        }
-        let replconf_port =
-            RespMessage::new(format!("REPLCONF listening-port {}", server_options.port))
-                .build_reply();
-
-        handshake_server_stream
-            .write(replconf_port.as_bytes())
-            .unwrap();
-        let replconf_capa_psycn2 =
-            RespMessage::new(String::from("REPLCONF capa psycn2")).build_reply();
-        handshake_server_stream
-            .write(replconf_capa_psycn2.as_bytes())
-            .unwrap();
-        let mut buf = [0; 512];
-        if let Ok(read_bytes) = handshake_server_stream.read(&mut buf) {
-            let response = std::str::from_utf8(&buf[..read_bytes]).unwrap();
-            println!("handshake: Received: {response}");
-        } else {
-            eprintln!("handshake: Error reading replconf response")
-        }
-    } else {
-        eprintln!("handshake: error reading from master while handshake")
-    }
-}
+use command::RedisCommand;
+use std::{io::Read, net::TcpListener};
+use tcp::send_message;
 
 fn main() {
-    let data_store = Arc::new(Mutex::new(HashMap::new()));
-
-    let command_args: Vec<String> = std::env::args().collect();
-    let server_options = extract_server_options(command_args);
-    let listener = init_server(&data_store, &server_options);
-    if server_options.role == "slave" {
-        let mut replica_stream =
-            connect_to_replica(&data_store.lock().unwrap().get("__replicaof").unwrap().value);
-        do_handshake(&mut replica_stream, &server_options);
-    }
+    let args = cli::parse_cli();
+    let addr = format!("127.0.0.1:{}", args.port);
+    replica::main_of_replica();
+    let listener = TcpListener::bind(addr).unwrap();
+    let store = store::Store::new();
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut _stream) => {
-                println!("REDIS: new connection");
-                let data_store = data_store.clone();
-                std::thread::spawn(move || handle_conn(data_store, &mut _stream));
+            Ok(mut stream) => {
+                let store = store.clone();
+                let replicaof = args.replicaof.clone();
+                std::thread::spawn(move || {
+                    println!("REDIS: accpeted new connection");
+
+                    loop {
+                        let mut buf = [0; 1024];
+                        let size = stream.read(&mut buf).unwrap_or(0);
+                        if size == 0 {
+                            break;
+                        }
+
+                        let resp = parser::parse_resp(&String::from_utf8_lossy(&buf))
+                            .unwrap()
+                            .1;
+                        let command = command::parse_command(&resp).unwrap();
+
+                        match command {
+                            RedisCommand::Ping => {
+                                if let Err(e) = send_message(&stream, String::from("+PONG\r\n")) {
+                                    eprintln!("Error handling client: {}", e);
+                                }
+                            }
+                            RedisCommand::Echo(message) => {
+                                if let Err(e) = send_message(
+                                    &stream,
+                                    format!("${}\r\n{}\r\n", message.len(), message),
+                                ) {
+                                    eprintln!("Error handling client: {}", e);
+                                }
+                            }
+                            RedisCommand::Get(key) => {
+                                let mut message = String::from("$-1\r\n");
+                                if let Some(value) = store.get(&key) {
+                                    message = format!("${}\r\n{}\r\n", value.len(), value);
+                                }
+                                if let Err(e) = send_message(&stream, message) {
+                                    eprint!("Error handling client: {}", e);
+                                }
+                            }
+                            RedisCommand::Set(key, val, px) => {
+                                store.set(key, val, px);
+                                if let Err(e) = send_message(&stream, String::from("+OK\r\n")) {
+                                    eprint!("Error handling client: {}", e);
+                                }
+                            }
+                            RedisCommand::Info => {
+                                let role = match replicaof {
+                                    Some(_) => "slave",
+                                    _ => "master",
+                                };
+                                let info = [
+                                    format!("role:{}", role),
+                                    "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+                                        .to_string(),
+                                    "master_repl_offset:0".to_string(),
+                                ]
+                                .join("\r\n");
+                                let message = format!("${}\r\n{}\r\n", info.len(), info);
+                                if let Err(e) = send_message(&stream, message) {
+                                    eprintln!("Error handling client: {}", e);
+                                }
+                            }
+                            RedisCommand::ReplConf => {
+                                if let Err(e) = send_message(&stream, String::from("+OK\r\n")) {
+                                    eprintln!("Error handling client {}", e);
+                                }
+                            }
+                        }
+                    }
+                });
             }
             Err(e) => {
-                println!("error: {}", e);
+                println!("Error listening to connection: {}", e);
             }
         }
     }
