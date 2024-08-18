@@ -6,6 +6,29 @@ use nom::sequence::delimited;
 use nom::IResult;
 use std::vec::Vec;
 
+pub struct RespMessage {
+    pub raw_string: String,
+}
+
+impl RespMessage {
+    pub fn new(raw_string: String) -> Self {
+        Self { raw_string }
+    }
+
+    pub fn build_reply(&self) -> String {
+        let commands_vec = self
+            .raw_string
+            .split(' ')
+            .map(String::from)
+            .collect::<Vec<_>>();
+        let mut command_strign = String::new();
+        for command in &commands_vec {
+            command_strign.push_str(format!("${}\r\n{}\r\n", command.len(), command).as_str())
+        }
+        format!("*{}\r\n{}", commands_vec.len(), command_strign)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum RespData {
     SimpleString(String),

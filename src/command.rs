@@ -6,8 +6,9 @@ pub enum RedisCommand {
     Set(String, String, Option<u64>),
     Get(String),
     Info,
-    ReplConf,
-    InitPsync,
+    ReplConfListenPort(String, u16),
+    ReplConfCapaPsync2,
+    Psync,
 }
 
 fn parse_px(args: &[RespData]) -> Option<u64> {
@@ -54,13 +55,23 @@ pub fn parse_command(data: &RespData) -> Option<RedisCommand> {
             [RespData::BulkString(role)] if role == "replication" => Some(RedisCommand::Info),
             _ => None,
         },
-        "REPLCONF" => Some(RedisCommand::ReplConf),
+        "REPLCONF" => match args {
+            [RespData::BulkString(info), RespData::BulkString(port)]
+                if info == "listening-port" =>
+            {
+                Some(RedisCommand::ReplConfListenPort(
+                    info.to_string(),
+                    port.parse().ok()?,
+                ))
+            }
+            _ => Some(RedisCommand::ReplConfCapaPsync2),
+        },
         "PSYNC" => match args {
             // PSYNC ? -1
             [RespData::BulkString(repl_request), RespData::BulkString(init_offset)]
                 if repl_request == "?" && init_offset == "-1" =>
             {
-                Some(RedisCommand::InitPsync)
+                Some(RedisCommand::Psync)
             }
             _ => None,
         },
