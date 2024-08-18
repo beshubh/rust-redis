@@ -1,5 +1,3 @@
-use clap::builder::Str;
-
 use crate::cli;
 use crate::tcp;
 use std::io::Read;

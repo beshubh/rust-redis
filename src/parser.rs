@@ -6,12 +6,10 @@ use nom::sequence::delimited;
 use nom::IResult;
 use std::vec::Vec;
 
-
 #[derive(Debug, PartialEq)]
 pub enum RespData {
     SimpleString(String),
     Error(String),
-    Integer(i64),
     BulkString(String),
     BulkStringNull,
     Array(Vec<RespData>),

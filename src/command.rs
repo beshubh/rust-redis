@@ -7,7 +7,7 @@ pub enum RedisCommand {
     Get(String),
     Info,
     ReplConf,
-    Psycn,
+    InitPsync,
 }
 
 fn parse_px(args: &[RespData]) -> Option<u64> {
@@ -55,7 +55,15 @@ pub fn parse_command(data: &RespData) -> Option<RedisCommand> {
             _ => None,
         },
         "REPLCONF" => Some(RedisCommand::ReplConf),
-        "PSYNC" => Some(RedisCommand::Psycn),
+        "PSYNC" => match args {
+            // PSYNC ? -1
+            [RespData::BulkString(repl_request), RespData::BulkString(init_offset)]
+                if repl_request == "?" && init_offset == "-1" =>
+            {
+                Some(RedisCommand::InitPsync)
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
