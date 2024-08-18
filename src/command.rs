@@ -7,6 +7,7 @@ pub enum RedisCommand {
     Get(String),
     Info,
     ReplConf,
+    Psycn,
 }
 
 fn parse_px(args: &[RespData]) -> Option<u64> {
@@ -54,6 +55,7 @@ pub fn parse_command(data: &RespData) -> Option<RedisCommand> {
             _ => None,
         },
         "REPLCONF" => Some(RedisCommand::ReplConf),
+        "PSYNC" => Some(RedisCommand::Psycn),
         _ => None,
     }
 }
