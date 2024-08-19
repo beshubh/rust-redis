@@ -38,10 +38,10 @@ pub fn do_handshake(mut stream: &TcpStream, listening_port: &u16) {
     .unwrap();
 
     // read and ignore empty rdb file
-    // let mut buf = [0; 1024];
-    // stream.read(&mut buf).unwrap();
-    // let mut buf = [0; 1024];
-    // stream.read(&mut buf).unwrap();
+    let mut buf = [0; 1024];
+    stream.read(&mut buf).unwrap();
+    let mut buf = [0; 1024];
+    stream.read(&mut buf).unwrap();
 }
 
 pub fn main_of_replica() {
