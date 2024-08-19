@@ -27,9 +27,12 @@ fn psync(mut stream: &TcpStream) {
 
 fn replication(cmd: String, slaves: &Arc<Mutex<Vec<TcpStream>>>) {
     let slaves = slaves.lock().unwrap();
+    println!("how many slaves? {}", slaves.len());
     for stream in slaves.iter() {
         let cmd = cmd.clone();
-        send_message(stream, cmd).unwrap();
+        send_message(stream, cmd)
+            .map_err(|e| eprintln!("ErrorReplication: cannot send command to replica: {}", e))
+            .unwrap();
     }
 }
 
@@ -87,10 +90,14 @@ fn main() {
                             }
                             RedisCommand::Set(key, val, px) => {
                                 store.set(key.clone(), val.clone(), px);
+                                // if replicaof.is_some() {
                                 if let Err(e) = send_message(&stream, String::from("+OK\r\n")) {
                                     eprint!("Error handling client: {}", e);
                                 }
+                                // }
+
                                 if replicaof.is_none() {
+                                    println!(" I am replica of none. I am the king.");
                                     let mut replication_command =
                                         format!("SET {} {}", key.clone(), val.clone());
                                     if px.is_some() {

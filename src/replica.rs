@@ -3,41 +3,57 @@ use crate::parser::RespMessage;
 use crate::tcp;
 use std::io::Read;
 use std::net::TcpStream;
+use std::thread;
 
 fn do_handshake(mut stream: &TcpStream, listening_port: &u16) {
-    let resp_msg = RespMessage::new(String::from("PING")).build_reply();
-    tcp::send_message(stream, resp_msg).unwrap();
+    tcp::send_message(stream, RespMessage::new(String::from("PING")).build_reply()).unwrap();
 
     let mut buf = [0; 512];
-    if let Ok(read_bytes) = stream.read(&mut buf) {
-        let response = std::str::from_utf8(&buf[..read_bytes]).unwrap();
-        println!("handshake: Received {response}");
-
-        if response.trim() != "+PONG" {
-            tcp::send_message(stream, String::from("-Error wrong response for PING")).unwrap();
-        }
-        let replconf_port =
-            RespMessage::new(format!("REPLCONF listening-port {}", listening_port)).build_reply();
-
-        tcp::send_message(stream, replconf_port).unwrap();
-        let replconf_capa_psycn2 =
-            RespMessage::new(String::from("REPLCONF capa psycn2")).build_reply();
-        stream.read(&mut buf).unwrap();
-        tcp::send_message(stream, replconf_capa_psycn2).unwrap();
-
-        let mut buf = [0; 512];
-        if let Ok(read_bytes) = stream.read(&mut buf) {
-            let response = std::str::from_utf8(&buf[..read_bytes]).unwrap();
-            println!("handshake: Received: {response}");
-            let psync_msg = RespMessage::new(String::from("PSYNC ? -1")).build_reply();
-            println!("psync last message: {}", psync_msg);
-            tcp::send_message(stream, psync_msg).unwrap();
-        } else {
-            eprintln!("handshake: Error reading replconf response")
-        }
-    } else {
-        eprintln!("handshake: error reading from master while handshake")
+    let handshake_response = tcp::read_message(stream, &mut buf);
+    if handshake_response.trim() != "+PONG" {
+        tcp::send_message(stream, String::from("-Wrong ping response")).unwrap()
     }
+
+    tcp::send_message(
+        stream,
+        RespMessage::new(format!("REPLCONF listening-port {}", listening_port)).build_reply(),
+    )
+    .unwrap();
+
+    let handshake_response = tcp::read_message(stream, &mut buf);
+    println!("handshake: Recieved: {handshake_response}");
+
+    tcp::send_message(
+        stream,
+        RespMessage::new(String::from("REPLCONF capa psycn2")).build_reply(),
+    )
+    .unwrap();
+    let handshake_response = tcp::read_message(stream, &mut buf);
+    println!("handshake: Received {handshake_response}");
+
+    tcp::send_message(
+        stream,
+        RespMessage::new(String::from("PSYNC ? -1")).build_reply(),
+    )
+    .unwrap();
+
+    let handshake_response = tcp::read_message(stream, &mut buf);
+    println!("handshake: Received {handshake_response}");
+    // let mut buf = Vec::new();
+    // loop {
+    //     match stream.read(&mut buf) {
+    //         Ok(0) => {} // Connection closed
+    //         Ok(_) => {
+    //             let message = String::from_utf8_lossy(&buf);
+    //             println!("Received: {message}");
+    //             buf.clear(); // Clear the buffer for the next read
+    //         }
+    //         Err(e) => {
+    //             eprintln!("Error reading from stream: {e}");
+    //             break;
+    //         }
+    //     }
+    // }
 }
 
 pub fn main_of_replica() {
@@ -46,7 +62,10 @@ pub fn main_of_replica() {
         Some(replicaof) => {
             let stream =
                 TcpStream::connect(format!("{}:{}", replicaof.host, replicaof.port)).unwrap();
-            do_handshake(&stream, &args.port);
+
+            thread::spawn(move || {
+                do_handshake(&stream, &args.port);
+            });
         }
         _ => {}
     }
