@@ -171,10 +171,10 @@ fn main() {
                 let slaves = Arc::clone(&slaves);
                 let replicaof = args.replicaof.clone();
                 let wal_buffer = Arc::clone(&wal_buffer);
+
+                replica::do_handshake(&stream, &args.port);
                 std::thread::spawn(move || {
                     println!("replica: connected to master");
-
-                    replica::do_handshake(&stream, &args.port);
                     handle_connection(&stream, &store, &slaves, replicaof, &wal_buffer);
                 });
             }
