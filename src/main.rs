@@ -173,8 +173,9 @@ fn main() {
                 let wal_buffer = Arc::clone(&wal_buffer);
                 std::thread::spawn(move || {
                     println!("replica: connected to master");
-                    handle_connection(&stream, &store, &slaves, replicaof, &wal_buffer);
+
                     replica::do_handshake(&stream, &args.port);
+                    handle_connection(&stream, &store, &slaves, replicaof, &wal_buffer);
                 });
             }
             Err(e) => {
