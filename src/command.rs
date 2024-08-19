@@ -6,8 +6,7 @@ pub enum RedisCommand {
     Set(String, String, Option<u64>),
     Get(String),
     Info,
-    ReplConfListenPort(String, u16),
-    ReplConfCapaPsync2,
+    ReplConf(String, String),
     Psync,
 }
 
@@ -23,10 +22,14 @@ fn parse_px(args: &[RespData]) -> Option<u64> {
 pub fn parse_command(data: &RespData) -> Option<RedisCommand> {
     let array = match data {
         RespData::Array(arr) => arr,
-        _ => return None,
+        _ => {
+            eprintln!("resp does not starts with array");
+            return None;
+        }
     };
 
     let (cmd, args) = array.split_first().unwrap();
+
     let cmd = match cmd {
         RespData::BulkString(s) => s,
         _ => return None,
@@ -56,15 +59,10 @@ pub fn parse_command(data: &RespData) -> Option<RedisCommand> {
             _ => None,
         },
         "REPLCONF" => match args {
-            [RespData::BulkString(info), RespData::BulkString(port)]
-                if info == "listening-port" =>
-            {
-                Some(RedisCommand::ReplConfListenPort(
-                    info.to_string(),
-                    port.parse().ok()?,
-                ))
+            [RespData::BulkString(info), RespData::BulkString(port)] => {
+                Some(RedisCommand::ReplConf(info.to_string(), port.to_string()))
             }
-            _ => Some(RedisCommand::ReplConfCapaPsync2),
+            _ => None,
         },
         "PSYNC" => match args {
             // PSYNC ? -1
@@ -75,6 +73,9 @@ pub fn parse_command(data: &RespData) -> Option<RedisCommand> {
             }
             _ => None,
         },
-        _ => None,
+        _ => {
+            eprintln!("cmd is invalid : {}", cmd);
+            None
+        }
     }
 }

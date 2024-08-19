@@ -9,16 +9,20 @@ pub fn send_message(mut stream: &TcpStream, message: String) -> Result<(), Error
     Ok(())
 }
 
-pub fn read_message<'a>(mut stream: &'a TcpStream, buffer: &'a mut [u8]) -> &'a str {
+pub fn read_message(mut stream: &TcpStream) -> String {
+    let mut buffer = [0; 1024];
     let size = stream
-        .read(buffer)
+        .read(&mut buffer)
         .map_err(|e| {
             eprintln!("Error reading tcp stream: {}", e);
         })
         .unwrap();
-    std::str::from_utf8(&buffer[..size])
+    let res = std::str::from_utf8(&mut buffer[..size])
         .map_err(|e| {
             eprintln!("Error converting to string: {}", e);
         })
         .unwrap()
+        .to_string()
+        .to_owned();
+    return res;
 }
