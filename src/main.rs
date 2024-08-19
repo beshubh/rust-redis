@@ -9,6 +9,7 @@ use cli::ReplicaInfo;
 use command::RedisCommand;
 use hex;
 use parser::RespMessage;
+use std::cmp;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::{
@@ -36,7 +37,12 @@ fn handle_connection(
         let resp = parser::parse_resp(&String::from_utf8_lossy(&buf))
             .unwrap()
             .1;
-        let command = command::parse_command(&resp).unwrap();
+        let command = command::parse_command(&resp);
+        if command.is_none() {
+            eprintln!("invalid command received");
+            continue;
+        }
+        let command = command.unwrap();
 
         match command {
             RedisCommand::Ping => {
@@ -165,10 +171,10 @@ fn main() {
                 let slaves = Arc::clone(&slaves);
                 let replicaof = args.replicaof.clone();
                 let wal_buffer = Arc::clone(&wal_buffer);
-                replica::do_handshake(&stream, &args.port);
                 std::thread::spawn(move || {
                     println!("replica: connected to master");
                     handle_connection(&stream, &store, &slaves, replicaof, &wal_buffer);
+                    replica::do_handshake(&stream, &args.port);
                 });
             }
             Err(e) => {
