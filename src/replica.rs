@@ -43,30 +43,3 @@ pub fn do_handshake(mut stream: &TcpStream, listening_port: &u16) {
     let mut buf = [0; 1024];
     stream.read(&mut buf).unwrap();
 }
-
-pub fn main_of_replica() {
-    let args = cli::parse_cli();
-    match args.replicaof {
-        Some(replicaof) => {
-            let mut stream =
-                TcpStream::connect(format!("{}:{}", replicaof.host, replicaof.port)).unwrap();
-
-            thread::spawn(move || {
-                do_handshake(&stream, &args.port);
-                loop {
-                    let mut buf = Vec::new();
-
-                    let size = stream.read(&mut buf).unwrap();
-                    if size == 0 {
-                        // println!("no bytes to read");
-                        continue;
-                    } else {
-                        let data = &String::from_utf8_lossy(&buf);
-                        println!("data received: {}", data);
-                    }
-                }
-            });
-        }
-        _ => {}
-    }
-}

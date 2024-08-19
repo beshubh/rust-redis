@@ -9,13 +9,9 @@ use cli::ReplicaInfo;
 use command::RedisCommand;
 use hex;
 use parser::RespMessage;
-use std::cmp;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{
-    mpsc::{Receiver, Sender},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use store::Store;
 use tcp::send_message;
 
