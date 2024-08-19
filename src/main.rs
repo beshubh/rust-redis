@@ -40,7 +40,7 @@ fn handle_connection(
         let command = command::parse_command(&resp);
         if command.is_none() {
             eprintln!("invalid command received");
-            continue;
+            break;
         }
         let command = command.unwrap();
 
